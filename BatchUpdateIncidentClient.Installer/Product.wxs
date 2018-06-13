@@ -59,7 +59,7 @@
 
 
     <!-- Change the installer UI background images -->
-    <WixVariable Id="WixUILicenseRtf" Value="$(var.ProjectDir)\Assets\License.rtf" />
+    <!--<WixVariable Id="WixUILicenseRtf" Value="$(var.ProjectDir)\Assets\License.rtf" />-->
 
     <!-- Define components, shortcuts, files etc... for installer -->
     <Feature Id="ProductFeature" Title="ConsoleApp" Level="1">
