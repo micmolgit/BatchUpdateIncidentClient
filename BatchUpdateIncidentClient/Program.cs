@@ -3,24 +3,18 @@ using System.ServiceModel;
 using Nito.AsyncEx;
 using System.Reflection;
 using System.Threading.Tasks;
-using System.Collections.Generic;
 using DCRM_Utils;
-using System.Threading;
 
 namespace BatchUpdateIncidentClient
 {
     class Program
     {
-
-        #region PrintUsage
-        public static void PrintUsage()
+        #region Main
+        static void Main(string[] args)
         {
-            var exeName = Assembly.GetExecutingAssembly().GetName().Name;
-            MiscHelper.WriteLine($"Usage :\n" +
-                $"- {exeName}.exe <Incident GUID> <Client GUID>");
-            MiscHelper.PauseExecution();
+            AsyncContext.Run(() => MainAsync(args));
         }
-        #endregion // PrintUsage
+        #endregion // Main
 
         #region MainAsync
         // We are creating an async main method based on Nito.AsyncEx
@@ -44,7 +38,7 @@ namespace BatchUpdateIncidentClient
                 incidentId = new Guid(args[0]);
                 newAccountId = new Guid(args[1]);
 
-                 MiscHelper.WriteLine($"Updating similar incidents as ({incidentId}) with new client ({newAccountId}) )");
+                MiscHelper.WriteLine($"Incident to update : {incidentId}\nNew party : {newAccountId} )");
             }
             catch (Exception ex)
             {
@@ -54,7 +48,10 @@ namespace BatchUpdateIncidentClient
 
             try
             {
+                batch = new BatchUpdateIncidentClient();
                 var updatedIncidentsCount = await batch.UpdateRelatedIncidentsAsync(incidentId, newAccountId);
+
+                MiscHelper.WriteLine($"{updatedIncidentsCount} matching incidents where associated with {newAccountId}");
             }
             catch (FaultException<Microsoft.Xrm.Sdk.OrganizationServiceFault> ex)
             {
@@ -97,16 +94,22 @@ namespace BatchUpdateIncidentClient
             }
             finally
             {
-
+                if (batch != null)
+                    batch.Terminate();
             }
 
             return isOperationSuccessfull;
         }
         #endregion //MainAsync
 
-        static void Main(string[] args)
+        #region PrintUsage
+        public static void PrintUsage()
         {
-            AsyncContext.Run(() => MainAsync(args));
+            var exeName = Assembly.GetExecutingAssembly().GetName().Name;
+            MiscHelper.WriteLine($"Usage :\n" +
+                $"- {exeName}.exe <GUID Incident relatif à un Party> <GUID Nouveau Party>");
+            MiscHelper.PauseExecution();
         }
+        #endregion // PrintUsage
     }
 }

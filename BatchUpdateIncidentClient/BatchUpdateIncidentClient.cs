@@ -1,30 +1,31 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 using System.IO;
 using System.Threading.Tasks;
 using DCRM_Utils;
 using Microsoft.Extensions.Configuration;
-using System.Threading;
 using Microsoft.Xrm.Sdk;
-using Microsoft.Crm.Sdk.Messages;
 using Microsoft.Xrm.Sdk.Messages;
 
 namespace BatchUpdateIncidentClient
 {
     public class BatchUpdateIncidentClient
     {
+        #region Properties
         public string OutputDir { get; set; }
         public string OutputFile { get; set; }
         public string OutputFilePath { get; set; }
         public bool IsDebugMode { get; set; }
+        #endregion // Properties
 
+        #region BatchUpdateIncidentClient
         public BatchUpdateIncidentClient()
         {
             this.LoadConfiguration();
         }
+        #endregion // BatchUpdateIncidentClient
 
+        #region GetConfiguration
         private IConfigurationRoot GetConfiguration()
         {
             var builder = new ConfigurationBuilder()
@@ -34,6 +35,9 @@ namespace BatchUpdateIncidentClient
 
             return configuration;
         }
+        #endregion // GetConfiguration
+
+        #region LoadConfiguration
         private void LoadConfiguration()
         {
             var configuration = GetConfiguration();
@@ -43,23 +47,64 @@ namespace BatchUpdateIncidentClient
             OutputFilePath = string.Format($@"{OutputDir}\{OutputFile}");
             IsDebugMode = configuration["IsDebugMode"] == "true";
         }
-        public async Task<List<Guid>> UpdateRelatedIncidentsAsync(Guid incidentId, Guid newAccountId)
+        #endregion // LoadConfiguration
+
+        #region GetIncidentId
+        Guid GetIncidentId(Entity entity)
+        {
+            var Guid = (Guid) entity["incidentid"];
+            return Guid;
+        }
+        #endregion // GetIncidentId
+
+        #region GetCustomerIdFromIncident
+        private string GetCustomerIdFromIncident(string incidentId)
         {
             var ctx = DcrmConnectorFactory.GetContext();
 
-            var iDLookupKey = "accountid";
-            var entityLookupKey = "incidentid";
-
-            var entityQuery = from incident in ctx.CreateQuery("incident")
-                              join account in ctx.CreateQuery("account")
-                                on incident["customerid"] equals account["accountid"]
-                              where incident[entityLookupKey].Equals(incidentId)
+            var entityQuery = from entity in ctx.CreateQuery("incident")
+                              where entity["incidentid"].Equals(incidentId)
                               select new
                               {
-                                  Guid = (Guid)incident[iDLookupKey]
+                                  Guid = (EntityReference) entity["customerid"]
                               };
 
-            List<Guid> relatedincident = new List<Guid>();
+            var guid = "";
+            try
+            {
+                var entity = entityQuery.First();
+                if (entity != null)
+                {
+                    EntityReference reference = (EntityReference) entity.Guid;
+                    guid = reference.Id.ToString();
+                }
+            }
+            catch (Exception Ex)
+            {
+                MiscHelper.WriteLine($"GetGuidFromEntity : {Ex.Message}");
+            }
+
+            return guid;
+        }
+        #endregion // GetCustomerIdFromIncident
+
+        #region UpdateRelatedIncidentsAsync
+        public async Task<int> UpdateRelatedIncidentsAsync(Guid incidentId, Guid newAccountId)
+        {
+            var ctx = DcrmConnectorFactory.GetContext();
+            var oldAccountId = GetCustomerIdFromIncident(incidentId.ToString());
+
+            var entityQuery = from incident in ctx.CreateQuery("incident")
+                              where incident["customerid"].Equals(oldAccountId)
+                              where incident["statecode"].Equals(0)
+                              select new
+                              {
+                                  Guid = GetIncidentId(incident)
+                              };
+            var relatedIncidentsCount = 0;
+
+            MiscHelper.WriteLine("Querying DCRM Please Wait...");
+
             try
             {
                 await Task<uint>.Run(() =>
@@ -76,12 +121,19 @@ namespace BatchUpdateIncidentClient
 
                     foreach (var guid in entityQuery)
                     {
-                        //relatedincident.Add(guid.Guid);
                         var updateRequest = UpdateIncident(guid.Guid, newAccountId);
                         multipleRequest.Requests.Add(updateRequest);
+                        relatedIncidentsCount++;
                     }
 
-                    ExecuteMultipleResponse multipleResponse = (ExecuteMultipleResponse)ctx.Execute(multipleRequest);
+                    ExecuteMultipleResponse multipleResponse = (ExecuteMultipleResponse) ctx.Execute(multipleRequest);
+
+                    foreach (var responseItem in multipleResponse.Responses)
+                    {
+                        // An error has occurred.
+                         if (responseItem.Fault != null)
+                            MiscHelper.WriteLine($"{multipleResponse.Responses[responseItem.RequestIndex]} : {responseItem.Fault}");
+                    }
                 });
             }
             catch (Exception ex)
@@ -89,9 +141,11 @@ namespace BatchUpdateIncidentClient
                 MiscHelper.WriteLine($"GetRelatedIncidentsAsync() : {ex.Message}");
             }
 
-            return relatedincident;
+            return relatedIncidentsCount;
         }
+        #endregion // UpdateRelatedIncidentsAsync
 
+        #region UpdateIncident
         private UpdateRequest UpdateIncident(Guid incidentId, Guid accountID)
         {
             var ctx = DcrmConnectorFactory.GetContext();
@@ -100,12 +154,19 @@ namespace BatchUpdateIncidentClient
 
             var incident = new Entity(Incident.EntityLogicalName, incidentId);
 
-            //Populate whatever fields you want (this is just an example)
-            incident["customerid"] = accountID;
+            incident["customerid"] = account;
 
             UpdateRequest updateRequest = new UpdateRequest { Target = incident };
 
             return updateRequest;
         }
+        #endregion // UpdateIncident
+
+        #region Terminate
+        public void Terminate()
+        {
+            MiscHelper.PauseExecution();
+        }
+        #endregion // Terminate
     }
 }
